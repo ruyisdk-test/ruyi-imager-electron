@@ -29,6 +29,7 @@ jobs:
           name: ruyi-imager-${{ runner.os }}-${{ runner.arch }}
           path: |
             dist/*.deb
+            dist/*.tar.gz
             dist/*.dmg
             dist/*.exe
           if-no-files-found: error
