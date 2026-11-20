@@ -114,6 +114,25 @@ async function openApp() {
       );
     },
   );
+  session.on('file-system-access-restricted', (_event, details, callback) => {
+    if (!trusted(details.frame)) {
+      callback('deny');
+      return;
+    }
+    const message = words(
+      '此位置受保护。请选择其他位置，例如下载目录中新建的子目录。',
+      'This location is protected. Choose another location, such as a new folder inside Downloads.',
+      'Dieser Speicherort ist geschützt. Wählen Sie einen anderen Ort, zum Beispiel einen neuen Ordner unter Downloads.',
+    );
+    void pick(
+      `${message}\n\n${details.path}`,
+      [words('重新选择', 'Choose again', 'Erneut auswählen')],
+    ).then(
+      (choice) =>
+        callback(choice === 0 && trusted(details.frame) ? 'tryAgain' : 'deny'),
+      () => callback('deny'),
+    );
+  });
   session.on('select-usb-device', (event, { deviceList, frame }, callback) => {
     event.preventDefault();
     if (!trusted(frame)) {
