@@ -258,6 +258,14 @@ async function openApp() {
           SHA256: image.sha256,
         });
       } catch (error) {
+        if (error.code === 124)
+          throw Error(
+            words(
+              '写盘操作超时。请检查目标磁盘并重新完整刷写。',
+              'Disk operation timed out. Check the target disk and retry the full write.',
+              'Zeitüberschreitung beim Datenträgerzugriff. Prüfen Sie das Ziellaufwerk und wiederholen Sie den gesamten Schreibvorgang.',
+            ),
+          );
         throw Error(
           error.stderr?.trim().slice(-2048) ||
             `Disk writer exited (${error.code})`,

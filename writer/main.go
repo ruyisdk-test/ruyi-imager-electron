@@ -10,7 +10,29 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
+
+const diskIdleTimeout = 5 * time.Minute
+
+type ioWatchdog struct {
+	timer *time.Timer
+	idle  time.Duration
+}
+
+func watchIO(idle time.Duration) ioWatchdog {
+	return ioWatchdog{idle: idle, timer: time.AfterFunc(idle, func() {
+		fmt.Fprintln(os.Stderr, "Disk operation timed out without progress. Check the target and retry the full write.")
+		os.Exit(124)
+	})}
+}
+
+func (watch ioWatchdog) Write(data []byte) (int, error) {
+	if len(data) != 0 {
+		watch.timer.Reset(watch.idle)
+	}
+	return len(data), nil
+}
 
 type disk struct {
 	ID       string `json:"id"`
@@ -46,9 +68,9 @@ func findDisk(id string) (disk, error) {
 	return disk{}, errors.New("selected removable disk is no longer available")
 }
 
-func hashBytes(reader io.Reader, length int64) (string, error) {
+func hashBytes(reader io.Reader, length int64, watch ioWatchdog) (string, error) {
 	sum := sha256.New()
-	_, err := io.CopyN(sum, reader, length)
+	_, err := io.CopyN(io.MultiWriter(sum, watch), reader, length)
 	return hex.EncodeToString(sum.Sum(nil)), err
 }
 
@@ -68,7 +90,9 @@ func flash(req request) error {
 	if !info.Mode().IsRegular() || info.Size() != req.Size {
 		return errors.New("image file or size changed")
 	}
-	digest, err := hashBytes(source, req.Size)
+	validation := watchIO(diskIdleTimeout)
+	digest, err := hashBytes(source, req.Size, validation)
+	validation.timer.Stop()
 	if err != nil {
 		return err
 	}
@@ -89,13 +113,15 @@ func flash(req request) error {
 	if err != nil {
 		return err
 	}
+	watch := watchIO(diskIdleTimeout)
+	defer watch.timer.Stop()
 	defer release()
 	defer media.Close()
-	return writeImage(source, media, req.Size, req.SHA256)
+	return writeImage(source, media, req.Size, req.SHA256, watch)
 }
 
-func writeImage(source io.Reader, media *os.File, size int64, expected string) error {
-	if _, err := io.CopyN(media, source, size); err != nil {
+func writeImage(source io.Reader, media *os.File, size int64, expected string, watch ioWatchdog) error {
+	if _, err := io.CopyN(io.MultiWriter(media, watch), source, size); err != nil {
 		return err
 	}
 	if err := media.Sync(); err != nil {
@@ -104,7 +130,7 @@ func writeImage(source io.Reader, media *os.File, size int64, expected string) e
 	if _, err := media.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	digest, err := hashBytes(media, size)
+	digest, err := hashBytes(media, size, watch)
 	if err != nil {
 		return err
 	}
