@@ -145,15 +145,15 @@ async function openApp() {
     contents.on(name, (event, url) => {
       if (busy() || !page(url)) event.preventDefault();
     });
-  contents.on('did-navigate', () => {
+  function clearPageState() {
     targets.clear();
     directories.clear();
     flashing = false;
-  });
-  contents.on('render-process-gone', () => {
-    flashing = false;
-    targets.clear();
-    directories.clear();
+  }
+  contents.on('did-navigate', clearPageState);
+  contents.on('render-process-gone', clearPageState);
+  contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    if (isMainFrame && !page(url)) clearPageState();
   });
   win.on('close', (event) => {
     if (busy()) event.preventDefault();
