@@ -1,0 +1,48 @@
+{
+  "name": "ruyi-imager-electron",
+  "version": "0.1.0",
+  "description": "Desktop host for the RuyiSDK device provisioner",
+  "author": "RuyiSDK",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "build:writer": "node scripts/build-writer.cjs",
+    "prestart": "npm run build:writer",
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "pack": "npm run build:writer && electron-builder --dir",
+    "dist": "npm run build:writer && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "org.ruyisdk.imager",
+    "productName": "Ruyi Imager",
+    "files": [
+      "src/**"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin"
+      }
+    ],
+    "linux": {
+      "target": "deb",
+      "category": "Utility",
+      "maintainer": "RuyiSDK"
+    },
+    "mac": {
+      "target": "dmg",
+      "binaries": [
+        "Contents/Resources/bin/ruyi-disk-writer"
+      ]
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

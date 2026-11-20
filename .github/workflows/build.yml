@@ -1,0 +1,34 @@
+name: Desktop imager
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: writer/go.mod
+          cache-dependency-path: writer/go.sum
+      - run: npm ci
+      - run: npm test
+      - run: go test ./...
+        working-directory: writer
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruyi-imager-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/*.deb
+            dist/*.dmg
+            dist/*.exe
+          if-no-files-found: error
