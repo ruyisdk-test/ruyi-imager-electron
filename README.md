@@ -1,6 +1,6 @@
 # Ruyi Imager desktop
 
-The app opens the deployed RuyiSDK graphical imager. Use **Ruyi Imager → Device Provision** for the terminal wizard. Both pages run the website's package strategies. Fastboot uses Chromium WebUSB. For `dd-v1`, the app selects a removable disk and invokes its Go writer after native confirmation. The writer verifies the extracted file, acquires the target, writes the image, and compares the disk read-back against the image SHA-256.
+The app opens the deployed RuyiSDK graphical imager. Use **Ruyi Imager → Device Provision** for the terminal wizard. Both pages run the website's package strategies. Fastboot uses Chromium WebUSB. For `dd-v1`, select a removable disk in the sidebar and confirm the flashing steps on the page. The Go writer verifies the extracted file, acquires the target, writes the image, and compares the disk read-back against the image SHA-256.
 
 If image verification, writing, or read-back makes no progress for five minutes, the writer exits with a timeout. After a timeout, check the target disk and repeat the full write.
 

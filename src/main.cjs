@@ -273,42 +273,6 @@ async function openApp() {
       operating = false;
     }
   });
-  ipcMain.handle('disk:select', async (event, slot) => {
-    verify(event);
-    if (busy() || typeof slot !== 'string' || slot.length > 128)
-      throw Error('Invalid disk selection');
-    operating = true;
-    try {
-      for (;;) {
-        const available = await disks.list(writer);
-        verify(event);
-        if (!available.length) {
-          const retry = await pick(
-            words(
-              '请插入可移动磁盘或 SD 读卡器。',
-              'Insert a removable disk or SD reader.',
-              'Wechseldatenträger oder SD-Leser anschließen.',
-            ),
-            [words('刷新', 'Refresh', 'Aktualisieren')],
-          );
-          if (retry < 0) return null;
-          continue;
-        }
-        const index = await pick(
-          `${words('选择目标磁盘', 'Select target disk', 'Ziellaufwerk auswählen')} (${slot})`,
-          available.map((disk) => disk.label),
-        );
-        verify(event);
-        if (index < 0) return null;
-        const id = randomUUID();
-        if (targets.size >= 128) targets.clear();
-        targets.set(id, available[index]);
-        return { id, label: available[index].label };
-      }
-    } finally {
-      operating = false;
-    }
-  });
   async function imagePath(image) {
     for (const root of directories) {
       if (path.basename(root) !== image.directory) continue;
@@ -329,15 +293,13 @@ async function openApp() {
         if (error.code !== 'ENOENT') throw error;
       }
     }
-    const filename = image.parts.at(-1);
-    const { filePaths } = await dialog.showOpenDialog(win, {
-      title: `${words('选择解包后的镜像', 'Select the extracted image', 'Entpacktes Abbild auswählen')} · ${filename}`,
-      properties: ['openFile'],
-    });
-    if (!filePaths.length) throw Error(cancel());
-    if (path.basename(filePaths[0]) !== filename)
-      throw Error(`Expected ${filename}`);
-    return filePaths[0];
+    throw Error(
+      words(
+        '无法在已授权的目录中找到镜像，请重新选择镜像目录。',
+        'Image not found in the authorized directory. Select the image directory again.',
+        'Abbild im freigegebenen Verzeichnis nicht gefunden. Wählen Sie das Abbildverzeichnis erneut aus.',
+      ),
+    );
   }
   ipcMain.handle('disk:write', async (event, token, image) => {
     verify(event);
@@ -353,12 +315,6 @@ async function openApp() {
     try {
       const source = await imagePath(image);
       await fs.access(source, require('node:fs').constants.R_OK);
-      verify(event);
-      const accepted = await pick(
-        `${words('覆盖整盘数据？', 'Overwrite all data on this disk?', 'Alle Daten auf diesem Laufwerk überschreiben?')}\n\n${source}\n→ ${target.label}`,
-        [words('写入并校验', 'Write and verify', 'Schreiben und prüfen')],
-      );
-      if (accepted < 0) throw Error(cancel());
       verify(event);
       try {
         await disks.write(writer, {
