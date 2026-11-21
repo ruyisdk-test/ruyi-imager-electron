@@ -10,6 +10,7 @@ const {
 const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { DiskChoices } = require('./disk-choice.cjs');
 const { site, page, download, validImage } = require('./policy.cjs');
 const disks = require('./writer.cjs');
 
@@ -48,6 +49,7 @@ async function openApp() {
   const contents = win.webContents;
   const session = contents.session;
   const targets = new Map();
+  const choices = new DiskChoices();
   const directories = new Set();
   const mirrorRequests = new Map();
   let operating = false;
@@ -221,6 +223,7 @@ async function openApp() {
   function clearPageState() {
     mirrorRequests.clear();
     targets.clear();
+    choices.clear();
     directories.clear();
     flashing = false;
   }
@@ -236,6 +239,38 @@ async function openApp() {
   ipcMain.handle('flashing', (event, active) => {
     verify(event);
     flashing = active === true;
+  });
+  ipcMain.handle('disk:list', async (event) => {
+    verify(event);
+    if (busy()) throw Error('Invalid disk selection');
+    operating = true;
+    try {
+      const available = await disks.list(writer);
+      verify(event);
+      return choices.replace(available);
+    } finally {
+      operating = false;
+    }
+  });
+  ipcMain.handle('disk:choose', async (event, slot, id) => {
+    verify(event);
+    if (busy() || typeof slot !== 'string' || slot.length > 128)
+      throw Error('Invalid disk selection');
+    const selected = choices.take(id);
+    if (!selected) throw Error('Selected disk is no longer available');
+    operating = true;
+    try {
+      const available = await disks.list(writer);
+      verify(event);
+      const current = available.find((disk) => disk.id === selected.id);
+      if (!current) throw Error('Selected disk is no longer available');
+      const token = randomUUID();
+      if (targets.size >= 128) targets.clear();
+      targets.set(token, current);
+      return { id: token, label: current.label };
+    } finally {
+      operating = false;
+    }
   });
   ipcMain.handle('disk:select', async (event, slot) => {
     verify(event);
