@@ -1,9 +1,4 @@
 const site = 'https://ruyisdk.org';
-const mirrors = new Set([
-  'https://mirror.iscas.ac.cn',
-  'https://archive.spacemit.com',
-  'https://developer.zhcomputing.com',
-]);
 function page(url) {
   try {
     const parsed = new URL(url);
@@ -23,8 +18,7 @@ function download(url) {
   try {
     const parsed = new URL(url);
     return (
-      parsed.protocol === 'https:' &&
-      mirrors.has(parsed.origin) &&
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
       !parsed.username &&
       !parsed.password
     );

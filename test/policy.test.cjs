@@ -16,6 +16,8 @@ test('only deployed provision pages can call the bridge', () => {
   ])
     assert.equal(page(url), false);
   assert.ok(download('https://mirror.iscas.ac.cn/image'));
+  assert.ok(download('https://github.com/vendor/images/releases/download/v1/board.img'));
+  assert.ok(download('http://new-mirror.example:8080/image'));
   assert.equal(download('file:///image'), false);
   assert.equal(download('blob:https://mirror.iscas.ac.cn/image'), false);
   assert.equal(download('https://user@mirror.iscas.ac.cn/image'), false);

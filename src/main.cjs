@@ -204,7 +204,6 @@ async function openApp() {
       const response = await session.fetch(url, {
         signal: request.signal,
         credentials: 'omit',
-        redirect: 'error',
       });
       if (!response.ok) await response.body?.cancel();
       return new Response(response.ok ? response.body : null, {
