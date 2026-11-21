@@ -82,10 +82,19 @@ async function openApp() {
     return response - 1;
   }
   const allowed = new Set(['usb', 'fileSystem', 'clipboard-sanitized-write']);
-  function filePermission(details) {
+  function filePermission(details, requested = false) {
     if (details.fileAccessType === 'readable') return true;
     const file = details.filePath;
-    if (typeof file !== 'string' || !path.isAbsolute(file)) return false;
+    if (
+      details.fileAccessType !== 'writable' ||
+      typeof file !== 'string' ||
+      !path.isAbsolute(file)
+    )
+      return false;
+    if (requested && details.isDirectory) {
+      directories.add(file);
+      return true;
+    }
     for (const root of directories) {
       const relative = path.relative(root, file);
       if (
@@ -95,15 +104,7 @@ async function openApp() {
       )
         return true;
     }
-    if (!details.isDirectory) return false;
-    const answer = dialog.showMessageBoxSync(win, {
-      message: `${words('允许在此目录保存刷写镜像？', 'Save flashing images in this directory?', 'Abbilder in diesem Verzeichnis speichern?')}\n\n${file}`,
-      buttons: [cancel(), words('允许', 'Allow', 'Erlauben')],
-      defaultId: 0,
-      cancelId: 0,
-    });
-    if (answer === 1) directories.add(file);
-    return answer === 1;
+    return false;
   }
   session.setPermissionCheckHandler((sender, permission, origin, details) => {
     if (
@@ -127,7 +128,7 @@ async function openApp() {
         allowed.has(permission) &&
         (details.isMainFrame || permission === 'fileSystem');
       callback(
-        grant && (permission !== 'fileSystem' || filePermission(details)),
+        grant && (permission !== 'fileSystem' || filePermission(details, true)),
       );
     },
   );
