@@ -4,6 +4,7 @@ const {
   Menu,
   dialog,
   ipcMain,
+  protocol,
   shell,
 } = require('electron');
 const { randomUUID } = require('node:crypto');
@@ -11,6 +12,19 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { site, page, download, validImage } = require('./policy.cjs');
 const disks = require('./writer.cjs');
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'ruyi-image',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
 
 async function openApp() {
   const writerName =
@@ -35,6 +49,7 @@ async function openApp() {
   const session = contents.session;
   const targets = new Map();
   const directories = new Set();
+  const mirrorRequests = new Map();
   let operating = false;
   let flashing = false;
   const busy = () => operating || flashing;
@@ -160,11 +175,52 @@ async function openApp() {
     if (download(url) && page(contents.getURL())) void shell.openExternal(url);
     return { action: 'deny' };
   });
+  ipcMain.handle('mirror:url', (event, url) => {
+    verify(event);
+    if (typeof url !== 'string' || !download(url)) throw Error('Invalid mirror');
+    if (mirrorRequests.size >= 16)
+      mirrorRequests.delete(mirrorRequests.keys().next().value);
+    const ticket = `ruyi-image://download/${randomUUID()}`;
+    mirrorRequests.set(ticket, url);
+    return ticket;
+  });
+  session.protocol.handle('ruyi-image', async (request) => {
+    const url = mirrorRequests.get(request.url);
+    if (
+      !url ||
+      request.method !== 'GET' ||
+      request.initiatorOrigin !== site ||
+      !page(contents.getURL())
+    )
+      return new Response(null, { status: 403 });
+    mirrorRequests.delete(request.url);
+    const headers = {
+      'Access-Control-Allow-Origin': site,
+      'Cache-Control': 'no-store',
+      'Content-Type': 'application/octet-stream',
+      'X-Content-Type-Options': 'nosniff',
+    };
+    try {
+      const response = await session.fetch(url, {
+        signal: request.signal,
+        credentials: 'omit',
+        redirect: 'error',
+      });
+      if (!response.ok) await response.body?.cancel();
+      return new Response(response.ok ? response.body : null, {
+        status: response.status,
+        headers,
+      });
+    } catch {
+      return new Response(null, { status: 502, headers });
+    }
+  });
   for (const name of ['will-navigate', 'will-redirect'])
     contents.on(name, (event, url) => {
       if (busy() || !page(url)) event.preventDefault();
     });
   function clearPageState() {
+    mirrorRequests.clear();
     targets.clear();
     directories.clear();
     flashing = false;

@@ -22,7 +22,12 @@ function page(url) {
 function download(url) {
   try {
     const parsed = new URL(url);
-    return mirrors.has(parsed.origin) && !parsed.username && !parsed.password;
+    return (
+      parsed.protocol === 'https:' &&
+      mirrors.has(parsed.origin) &&
+      !parsed.username &&
+      !parsed.password
+    );
   } catch {
     return false;
   }

@@ -17,6 +17,8 @@ test('only deployed provision pages can call the bridge', () => {
     assert.equal(page(url), false);
   assert.ok(download('https://mirror.iscas.ac.cn/image'));
   assert.equal(download('file:///image'), false);
+  assert.equal(download('blob:https://mirror.iscas.ac.cn/image'), false);
+  assert.equal(download('https://user@mirror.iscas.ac.cn/image'), false);
 });
 test('accepts only a workspace-relative extracted image', () => {
   const image = {
