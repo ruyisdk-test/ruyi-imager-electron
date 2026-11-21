@@ -74,6 +74,23 @@ func hashBytes(reader io.Reader, length int64, watch ioWatchdog) (string, error)
 	return hex.EncodeToString(sum.Sum(nil)), err
 }
 
+func openSelectedDisk(id string, size int64) (disk, *os.File, func(), error) {
+	watch := watchIO(diskIdleTimeout)
+	defer watch.timer.Stop()
+	target, err := findDisk(id)
+	if err != nil {
+		return disk{}, nil, nil, err
+	}
+	if target.sector <= 0 || size > target.Capacity || size%target.sector != 0 {
+		return disk{}, nil, nil, errors.New("image exceeds the disk capacity or is not sector-aligned")
+	}
+	media, release, err := openDisk(target)
+	if err != nil {
+		return disk{}, nil, nil, err
+	}
+	return target, media, release, nil
+}
+
 func flash(req request) error {
 	if !filepath.IsAbs(req.Source) || req.Size <= 0 || len(req.SHA256) != 64 {
 		return errors.New("invalid image request")
@@ -102,14 +119,7 @@ func flash(req request) error {
 	if _, err = source.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	target, err := findDisk(req.Disk)
-	if err != nil {
-		return err
-	}
-	if target.sector <= 0 || req.Size > target.Capacity || req.Size%target.sector != 0 {
-		return errors.New("image exceeds the disk capacity or is not sector-aligned")
-	}
-	media, release, err := openDisk(target)
+	_, media, release, err := openSelectedDisk(req.Disk, req.Size)
 	if err != nil {
 		return err
 	}
