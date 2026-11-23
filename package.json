@@ -1,6 +1,6 @@
 {
   "name": "ruyi-imager-electron",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Desktop host for the RuyiSDK device provisioner",
   "author": "RuyiSDK",
   "license": "Apache-2.0",
@@ -8,11 +8,13 @@
   "main": "src/main.cjs",
   "scripts": {
     "build:writer": "node scripts/build-writer.cjs",
-    "prestart": "npm run build:writer",
+    "build:renderer": "python scripts/build-catalog.py && node vendor/ruyi-imager-core/scripts/build-runtime.mjs --static renderer/static",
+    "build": "npm run build:renderer && npm run build:writer",
+    "prestart": "npm run build",
     "start": "electron .",
-    "test": "node --test test/*.test.cjs",
-    "pack": "npm run build:writer && electron-builder --dir",
-    "dist": "npm run build:writer && electron-builder --publish never"
+    "test": "node --test test/*.test.cjs && python -B -m unittest discover -s test",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --publish never"
   },
   "devDependencies": {
     "electron": "45.4.1",
@@ -22,7 +24,8 @@
     "appId": "org.ruyisdk.imager",
     "productName": "Ruyi Imager",
     "files": [
-      "src/**"
+      "src/**",
+      "renderer/**"
     ],
     "extraResources": [
       {

@@ -9,12 +9,19 @@ const {
 } = require('electron');
 const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
+const { createReadStream, openAsBlob } = require('node:fs');
 const path = require('node:path');
 const { DiskChoices } = require('./disk-choice.cjs');
+const { archiveIndex, ensureArchive, saveArchive } = require('./archive-cache.cjs');
+const { withStagedImage } = require('./stage-image.cjs');
 const { site, page, download, validImage } = require('./policy.cjs');
 const disks = require('./writer.cjs');
 
 protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'ruyi-imager',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  },
   {
     scheme: 'ruyi-image',
     privileges: {
@@ -48,10 +55,22 @@ async function openApp() {
   });
   const contents = win.webContents;
   const session = contents.session;
+  session.protocol.registerSource('ruyi-imager', {
+    routes: [{
+      match: { host: 'app' },
+      source: {
+        type: 'directory',
+        root: path.join(app.getAppPath(), 'renderer'),
+        headers: {
+          'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ruyi-image:; object-src 'none'; frame-src 'none'; base-uri 'none'",
+        },
+      },
+    }],
+  });
   const targets = new Map();
   const choices = new DiskChoices();
-  const directories = new Set();
-  const mirrorRequests = new Map();
+  const catalog = JSON.parse(await fs.readFile(path.join(app.getAppPath(), 'renderer/static/catalog.json'), 'utf8'));
+  const archives = archiveIndex(path.join(app.getPath('userData'), 'RuyiImages'), catalog.packages);
   let operating = false;
   let flashing = false;
   const busy = () => operating || flashing;
@@ -62,12 +81,8 @@ async function openApp() {
       throw Error('Unauthorized page');
   }
   function words(zh, en, de) {
-    const url = new URL(contents.getURL() || site);
-    return url.pathname.startsWith('/en/')
-      ? en
-      : url.pathname.startsWith('/de/')
-        ? de
-        : zh;
+    const language = app.getLocale().split('-')[0];
+    return language === 'zh' ? zh : language === 'de' ? de : en;
   }
   const cancel = () => words('取消', 'Cancel', 'Abbrechen');
   async function pick(title, labels) {
@@ -81,31 +96,7 @@ async function openApp() {
     });
     return response - 1;
   }
-  const allowed = new Set(['usb', 'fileSystem', 'clipboard-sanitized-write']);
-  function filePermission(details) {
-    if (details.fileAccessType === 'readable') return true;
-    const file = details.filePath;
-    if (
-      details.fileAccessType !== 'writable' ||
-      typeof file !== 'string' ||
-      !path.isAbsolute(file)
-    )
-      return false;
-    if (details.isDirectory) {
-      directories.add(file);
-      return true;
-    }
-    for (const root of directories) {
-      const relative = path.relative(root, file);
-      if (
-        !path.isAbsolute(relative) &&
-        relative !== '..' &&
-        !relative.startsWith(`..${path.sep}`)
-      )
-        return true;
-    }
-    return false;
-  }
+  const allowed = new Set(['usb', 'clipboard-sanitized-write']);
   session.setPermissionCheckHandler((sender, permission, origin, details) => {
     if (
       (sender && sender !== contents) ||
@@ -114,7 +105,6 @@ async function openApp() {
       !allowed.has(permission)
     )
       return false;
-    if (permission === 'fileSystem') return filePermission(details);
     if (permission === 'usb')
       return !details.embeddingOrigin || details.embeddingOrigin === site;
     return details.isMainFrame;
@@ -126,15 +116,10 @@ async function openApp() {
         page(contents.getURL()) &&
         page(details.requestingUrl) &&
         allowed.has(permission) &&
-        (details.isMainFrame || permission === 'fileSystem');
-      callback(
-        grant && (permission !== 'fileSystem' || filePermission(details)),
-      );
+        details.isMainFrame;
+      callback(grant);
     },
   );
-  session.on('file-system-access-restricted', (_event, details, callback) => {
-    callback(trusted(details.frame) ? 'tryAgain' : 'deny');
-  });
   session.on('select-usb-device', (event, { deviceList, frame }, callback) => {
     event.preventDefault();
     if (!trusted(frame)) {
@@ -162,43 +147,42 @@ async function openApp() {
     if (download(url) && page(contents.getURL())) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  ipcMain.handle('mirror:url', (event, url) => {
+  ipcMain.handle('archive:import', async (event, url) => {
     verify(event);
-    if (typeof url !== 'string' || !download(url)) throw Error('Invalid mirror');
-    if (mirrorRequests.size >= 16)
-      mirrorRequests.delete(mirrorRequests.keys().next().value);
-    const ticket = `ruyi-image://download/${randomUUID()}`;
-    mirrorRequests.set(ticket, url);
-    return ticket;
+    const spec = archives.get(url);
+    if (!spec) throw Error('Unknown archive');
+    const selection = await dialog.showOpenDialog(win, { title: spec.name, properties: ['openFile'] });
+    if (selection.canceled) return false;
+    verify(event);
+    await saveArchive(spec, createReadStream(selection.filePaths[0]), undefined, () => {});
+    return true;
   });
   session.protocol.handle('ruyi-image', async (request) => {
-    const url = mirrorRequests.get(request.url);
+    const spec = archives.get(request.url);
     if (
-      !url ||
+      !spec ||
       request.method !== 'GET' ||
       request.initiatorOrigin !== site ||
       !page(contents.getURL())
     )
       return new Response(null, { status: 403 });
-    mirrorRequests.delete(request.url);
     const headers = {
       'Access-Control-Allow-Origin': site,
       'Cache-Control': 'no-store',
       'Content-Type': 'application/octet-stream',
       'X-Content-Type-Options': 'nosniff',
+      'Access-Control-Expose-Headers': 'X-Archive-Status',
     };
     try {
-      const response = await session.fetch(url, {
-        signal: request.signal,
-        credentials: 'omit',
+      let last = 0;
+      headers['X-Archive-Status'] = await ensureArchive(spec, session.fetch.bind(session), request.signal, (phase, bytes) => {
+        if (bytes && bytes < spec.size && Date.now() - last < 150) return;
+        last = Date.now();
+        if (!contents.isDestroyed()) contents.send('archive:progress', { name: spec.name, phase, bytes, total: spec.size });
       });
-      if (!response.ok) await response.body?.cancel();
-      return new Response(response.ok ? response.body : null, {
-        status: response.status,
-        headers,
-      });
-    } catch {
-      return new Response(null, { status: 502, headers });
+      return new Response(await openAsBlob(spec.file), { headers });
+    } catch (error) {
+      return new Response(error.message, { status: 502, headers });
     }
   });
   for (const name of ['will-navigate', 'will-redirect'])
@@ -206,10 +190,8 @@ async function openApp() {
       if (busy() || !page(url)) event.preventDefault();
     });
   function clearPageState() {
-    mirrorRequests.clear();
     targets.clear();
     choices.clear();
-    directories.clear();
     flashing = false;
   }
   contents.on('did-navigate', clearPageState);
@@ -257,39 +239,12 @@ async function openApp() {
       operating = false;
     }
   });
-  async function imagePath(image) {
-    for (const root of directories) {
-      if (path.basename(root) !== image.directory) continue;
-      const candidate = path.join(root, ...image.parts);
-      try {
-        const [canonical, parent, info] = await Promise.all([
-          fs.realpath(candidate),
-          fs.realpath(root),
-          fs.stat(candidate),
-        ]);
-        if (
-          canonical === path.join(parent, ...image.parts) &&
-          info.isFile() &&
-          info.size === image.size
-        )
-          return canonical;
-      } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-      }
-    }
-    throw Error(
-      words(
-        '无法在已授权的目录中找到镜像，请重新选择镜像目录。',
-        'Image not found in the authorized directory. Select the image directory again.',
-        'Abbild im freigegebenen Verzeichnis nicht gefunden. Wählen Sie das Abbildverzeichnis erneut aus.',
-      ),
-    );
-  }
   ipcMain.handle('disk:write', async (event, token, image) => {
     verify(event);
     const target = targets.get(token);
     if (
       !target ||
+      !flashing ||
       operating ||
       !validImage(image) ||
       image.size > target.capacity
@@ -297,30 +252,30 @@ async function openApp() {
       throw Error('Invalid disk or image');
     operating = true;
     try {
-      const source = await imagePath(image);
-      await fs.access(source, require('node:fs').constants.R_OK);
-      verify(event);
-      try {
-        await disks.write(writer, {
-          Disk: target.id,
-          Source: source,
-          Size: image.size,
-          SHA256: image.sha256,
-        });
-      } catch (error) {
-        if (error.code === 124)
+      await withStagedImage(contents, app.getPath('userData'), image, async source => {
+        verify(event);
+        try {
+          await disks.write(writer, {
+            Disk: target.id,
+            Source: source,
+            Size: image.size,
+            SHA256: image.sha256,
+          });
+        } catch (error) {
+          if (error.code === 124)
+            throw Error(
+              words(
+                '写盘操作超时。请检查目标磁盘并重新完整刷写。',
+                'Disk operation timed out. Check the target disk and retry the full write.',
+                'Zeitüberschreitung beim Datenträgerzugriff. Prüfen Sie das Ziellaufwerk und wiederholen Sie den gesamten Schreibvorgang.',
+              ),
+            );
           throw Error(
-            words(
-              '写盘操作超时。请检查目标磁盘并重新完整刷写。',
-              'Disk operation timed out. Check the target disk and retry the full write.',
-              'Zeitüberschreitung beim Datenträgerzugriff. Prüfen Sie das Ziellaufwerk und wiederholen Sie den gesamten Schreibvorgang.',
-            ),
+            error.stderr?.trim().slice(-2048) ||
+              `Disk writer exited (${error.code})`,
           );
-        throw Error(
-          error.stderr?.trim().slice(-2048) ||
-            `Disk writer exited (${error.code})`,
-        );
-      }
+        }
+      });
     } finally {
       operating = false;
     }
@@ -333,28 +288,17 @@ async function openApp() {
         dialog.showErrorBox('Ruyi Imager', error.message);
     }
   }
-  function navigate(route) {
-    if (busy()) return;
-    const current = new URL(contents.getURL() || site);
-    const prefix = /^\/(en|de)\//.exec(current.pathname)?.[0] || '/';
-    void loadPage(`${site}${prefix}tryruyi/${route}`);
-  }
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
       {
         label: 'Ruyi Imager',
-        submenu: [
-          { label: 'Imager', click: () => navigate('imager') },
-          { label: 'Device Provision', click: () => navigate('device') },
-          { type: 'separator' },
-          { role: 'quit' },
-        ],
+        submenu: [{ role: 'quit' }],
       },
       { role: 'editMenu' },
     ]),
   );
-  await loadPage(`${site}/tryruyi/imager`);
+  await loadPage(`${site}/index.html`);
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

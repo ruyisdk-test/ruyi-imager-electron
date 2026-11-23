@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ruyi Imager</title>
+  <link rel="stylesheet" href="./imager.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header><strong>Ruyi Imager</strong><small id="release"></small></header>
+  <main>
+    <section>
+      <h1 data-zh="选择系统镜像">Select a system image</h1>
+      <fieldset id="selection" disabled>
+        <label><span data-zh="开发板">Board</span><select id="board"></select></label>
+        <label><span data-zh="硬件变体">Hardware variant</span><select id="variant"></select></label>
+        <label><span data-zh="操作系统">Operating system</span><select id="image"></select></label>
+        <div id="versions"></div>
+        <button id="prepare" class="primary" data-zh="准备镜像">Prepare image</button>
+      </fieldset>
+    </section>
+    <section class="activity">
+      <h2 data-zh="刷写记录">Activity</h2>
+      <pre id="log" role="log" aria-live="polite"></pre>
+      <output id="transfer"></output>
+      <div id="prompt" aria-live="polite"></div>
+      <div class="actions">
+        <button id="reconnect" hidden data-zh="重新连接开发板">Reconnect board</button>
+        <button id="cancel" hidden data-zh="取消">Cancel</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -11,6 +11,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -18,7 +24,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: writer/go.mod
-          cache-dependency-path: writer/go.sum
+          cache-dependency-path: |
+            writer/go.sum
+            vendor/ruyi-imager-core/go.sum
       - run: npm ci
       - run: npm test
       - run: go test ./...

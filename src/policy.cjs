@@ -1,18 +1,6 @@
-const site = 'https://ruyisdk.org';
+const site = 'ruyi-imager://app';
 function page(url) {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.origin === site &&
-      !parsed.username &&
-      !parsed.password &&
-      /^\/(?:(?:de|en|zh-Hans)\/)?tryruyi\/(?:imager|device)\/?$/.test(
-        parsed.pathname,
-      )
-    );
-  } catch {
-    return false;
-  }
+  return url === `${site}/index.html`;
 }
 function download(url) {
   try {
@@ -32,21 +20,8 @@ function validImage(image) {
     Number.isSafeInteger(image.size) &&
     image.size > 0 &&
     /^[a-f0-9]{64}$/.test(image.sha256) &&
-    typeof image.directory === 'string' &&
-    Array.isArray(image.parts) &&
-    image.parts.length >= 5 &&
-    image.parts.length <= 64 &&
-    image.parts[0] === 'RuyiImages' &&
-    image.parts[3] === 'images' &&
-    image.parts.every(
-      (part) =>
-        typeof part === 'string' &&
-        part.length > 0 &&
-        part.length <= 255 &&
-        part !== '.' &&
-        part !== '..' &&
-        !/[\\/:\x00-\x1f]/.test(part),
-    )
+    typeof image.url === 'string' &&
+    /^blob:ruyi-imager:\/\/app\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(image.url)
   );
 }
 module.exports = { site, page, download, validImage };

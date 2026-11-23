@@ -1,0 +1,3 @@
+[submodule "vendor/ruyi-imager-core"]
+	path = vendor/ruyi-imager-core
+	url = https://github.com/ruyisdk-test/ruyi-imager-core.git

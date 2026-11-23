@@ -1,14 +1,12 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { page, download, validImage } = require('../src/policy.cjs');
-test('only deployed provision pages can call the bridge', () => {
-  for (const route of [
-    '/tryruyi/imager',
-    '/de/tryruyi/device/',
-    '/en/tryruyi/imager',
-  ])
-    assert.ok(page('https://ruyisdk.org' + route));
+test('only the packaged imager page can call the bridge', () => {
+  assert.ok(page('ruyi-imager://app/index.html'));
   for (const url of [
+    'ruyi-imager://app/static/catalog.json',
+    'ruyi-imager://other/index.html',
+    'https://ruyisdk.org/tryruyi/imager',
     'https://ruyisdk.org/',
     'http://ruyisdk.org/tryruyi/device',
     'https://ruyisdk.org.example/tryruyi/imager',
@@ -22,17 +20,13 @@ test('only deployed provision pages can call the bridge', () => {
   assert.equal(download('blob:https://mirror.iscas.ac.cn/image'), false);
   assert.equal(download('https://user@mirror.iscas.ac.cn/image'), false);
 });
-test('accepts only a workspace-relative extracted image', () => {
+test('accepts only a blob from the local imager for disk writes', () => {
   const image = {
-    directory: 'work',
-    parts: ['RuyiImages', 'package', '1', 'images', 'sd.img'],
+    url: 'blob:ruyi-imager://app/6c3c55e7-34a1-4de2-9ab3-4ac242af8085',
     size: 512,
     sha256: 'a'.repeat(64),
   };
   assert.ok(validImage(image));
-  for (const part of ['..', '/dev/sda', 'C:\\', 'bad\0path'])
-    assert.equal(
-      validImage({ ...image, parts: [...image.parts, part] }),
-      false,
-    );
+  for (const url of ['/dev/sda', 'file:///image', image.url.replace('//app/', '//remote/'), image.url + '/extra'])
+    assert.equal(validImage({ ...image, url }), false);
 });
